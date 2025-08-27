@@ -213,11 +213,11 @@ app_license = "mit"
 # 	}
 # ]
 
-# Authentication and authorization
+# Authentication and  authorization
 # --------------------------------
 
 # auth_hooks = [
-# 	"gpos.auth.validate"
+# 	"gpos.auth.va lidate"
 # ]
 
 fixtures = [

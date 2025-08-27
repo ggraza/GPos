@@ -219,9 +219,20 @@ def get_items(item_group=None, last_updated_time=None, pos_profile = None):
 
 
     try:
+        item_filters = {}
+        pos_item_groups = []
+        if pos_profile:
+            pos = frappe.get_doc("POS Profile", pos_profile)
+            pos_item_groups = [d.item_group for d in pos.item_groups]
+
+
+            if pos_item_groups:
+                item_filters["item_group"] = ["in", pos_item_groups]
+
+
         fields = ["name", "stock_uom", "item_name", "item_group", "description", "modified","disabled"]
         # filters = {"item_group": ["like", f"%{item_group}%"]} if item_group else {}
-        item_filters = {}
+
         if item_group:
             item_filters["item_group"] = ["like", f"%{item_group}%"]
 
@@ -626,7 +637,8 @@ def create_customer(
         pass
 
 @frappe.whitelist(allow_guest=True)
-def customer_list(id=None, pos_profile=None):
+def customer_list_old(id=None, pos_profile=None):
+    #Please use the new new customer_list - Farook
     try:
 
         filters = {"name": ["like", f"{id}"]} if id else None
@@ -2260,23 +2272,77 @@ def create_customer_new(
 
 
 @frappe.whitelist()
-def customer_list_new(id=None):
+def customer_list(id=None, pos_profile=None):
     try:
         filters = {"name": id} if id else {}
         customers = frappe.get_list(
             "Customer",
             fields=[
-                "name",
+                "name as id",
                 "customer_name",
                 "mobile_no",
                 "email_id",
                 "tax_id",
                 "customer_group",
                 "territory",
-                "customer_primary_address"
+                "customer_primary_address",
+                "custom_default_pos",
+                "disabled",
             ],
             filters=filters,
         )
+
+        if  not customers:
+            return Response(
+                json.dumps({"error": "Customer not found"}),
+                status=404,
+                mimetype="application/json",
+            )
+
+        if not pos_profile:
+            return Response(
+                json.dumps({"data": customers}),
+                status=200,
+                mimetype="application/json",
+            )
+
+
+        if not frappe.db.exists("POS Profile", pos_profile):
+            return Response(
+                json.dumps({"error": "POS Profile not found"}),
+                status=404,
+                mimetype="application/json",
+            )
+
+
+        default_customer = frappe.db.get_value("POS Profile", pos_profile, "customer")
+
+
+        filtered_customers = []
+
+        try:
+            for cust in customers:
+                if default_customer and cust["id"] == default_customer:
+                    cust["custom_default_pos"] = 1
+                    filtered_customers.append(cust)
+                    continue
+                else:
+                    cust["custom_default_pos"] = 0
+
+                pos_profiles = frappe.get_all(
+                    "pos profile child table",
+                    filters={"parent": cust["id"]},
+                    fields=["pos_profile"],
+                )
+
+                if not pos_profiles:
+                    filtered_customers.append(cust)
+                else:
+                    if any(p["pos_profile"] == pos_profile for p in pos_profiles):
+                        filtered_customers.append(cust)
+        except Exception as e:
+            return f"Error occurred: {str(e)}"
+
 
         data = []
         for customer in customers:
@@ -2293,11 +2359,13 @@ def customer_list_new(id=None):
 
 
             data.append({
-                "id": customer.get("name"),
-                "customer": customer.get("customer_name"),
-                "mobile": customer.get("mobile_no"),
+                "id": customer.get("id"),
+                "customer_name": customer.get("customer_name"),
+                "phone_no": customer.get("mobile_no"),
                 "vat_number": customer.get("tax_id"),
                 "customer_group": customer.get("customer_group"),
+                "custom_default_pos": customer.get("custom_default_pos"),
+                "disabled": customer.get("disabled"),
                 **address_data,
 
             })
