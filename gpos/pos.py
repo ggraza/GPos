@@ -284,9 +284,9 @@ def get_items(item_group=None, last_updated_time=None, pos_profile = None):
         grouped_items = {}
 
         for item in items:
-
-            if item.disabled == 1:
-                continue
+            # Commented by Farook to send disabled tag on api, to handle from offline side properly
+            # if item.disabled == 1:
+            #     continue
 
             item_group_disabled = frappe.db.get_value(
                 "Item Group", item.item_group, "custom_disabled"
@@ -299,6 +299,7 @@ def get_items(item_group=None, last_updated_time=None, pos_profile = None):
                     "item_group": item.item_group,
                     "item_group_disabled": bool(item_group_disabled),
                     "items": [] if not item_group_disabled else [],
+                    "disabled": item.disabled,
                 }
 
             if not item_group_disabled:
@@ -357,6 +358,7 @@ def get_items(item_group=None, last_updated_time=None, pos_profile = None):
                         "item_name_arabic": item_name_arabic,
                         "tax_percentage": (item.get("custom_tax_percentage") or 0.0),
                         "description": item.description,
+                        "disabled": item.disabled,
                         "barcodes": [
                             {
                                 "id": barcode.name,
@@ -1039,7 +1041,7 @@ def generate_token_secure_for_users(username, password, app_key):
 
 
 @frappe.whitelist(allow_guest=True)
-def getOfflinePOSUsers(id=None, offset=0, limit=50):
+def getOfflinePOSUsers(id=None, offset=0, limit=500):
 
     docs = frappe.db.get_all(
         "POS Offline Users",
@@ -1759,7 +1761,9 @@ def create_credit_note(
         #         status=400,
         #         mimetype="application/json",
         #     )
-
+        cost_center = None
+        source_warehouse = None
+        profile_taxes_and_charges = None
         return_invoice = frappe.db.exists("Sales Invoice", return_against)
         offline_no_invoice_id = None
         if not return_invoice:
@@ -1791,7 +1795,12 @@ def create_credit_note(
                     status=409,
                     mimetype="application/json",
                 )
-
+        if pos_profile:
+            pos_doc = frappe.get_doc("POS Profile", pos_profile)
+            cost_center = pos_doc.cost_center
+            source_warehouse = pos_doc.warehouse
+            profile_taxes_and_charges = pos_doc.taxes_and_charges
+            profile_discount_account = pos_doc.custom_discount_account
         invoice_items = [
             {
                 "item_code": (
@@ -1802,6 +1811,8 @@ def create_credit_note(
                 "qty": item.get("quantity", 0),
                 "rate": item.get("rate", 0),
                 "uom": item.get("uom", "Nos"),
+                "cost_center": item.get("cost_center",cost_center),
+                "discount_account": item.get("discount_account", profile_discount_account),
             }
             for item in items
         ]
@@ -1827,15 +1838,11 @@ def create_credit_note(
 
                 payment_items.append({"mode_of_payment": mode, "amount": amount})
 
-        cost_center = None
-        source_warehouse = None
-        profile_taxes_and_charges = None
-
-        if pos_profile:
-            pos_doc = frappe.get_doc("POS Profile", pos_profile)
-            cost_center = pos_doc.cost_center
-            source_warehouse = pos_doc.warehouse
-            profile_taxes_and_charges = pos_doc.taxes_and_charges
+        # if pos_profile:
+        #     pos_doc = frappe.get_doc("POS Profile", pos_profile)
+        #     cost_center = pos_doc.cost_center
+        #     source_warehouse = pos_doc.warehouse
+        #     profile_taxes_and_charges = pos_doc.taxes_and_charges
 
         new_invoice = frappe.get_doc(
             {
@@ -1881,9 +1888,9 @@ def create_credit_note(
         )
 
         doc = frappe.get_doc("ZATCA Multiple Setting", zatca_setting_name)
-        doc.save()
 
-        item_tax_rate = None  # <-- add this line before the condition
+
+        item_tax_rate = None
 
         if new_invoice.items[0].item_tax_template:
             template = frappe.get_doc(
@@ -2060,7 +2067,9 @@ def get_promotion_list(pos_profile):
 
         promotions = frappe.get_all(
             "promotion",
-            filters={"valid_upto": (">=", today)},
+            filters={"valid_upto": (">=", today),
+                     "docstatus":1,
+                     "enabled":1},
             fields=["name", "company", "valid_from", "valid_upto"],
         )
 
@@ -2092,6 +2101,8 @@ def get_promotion_list(pos_profile):
                         "id": item.name,
                         "item_code": item.item_code,
                         "item_name": item.item_name,
+                        "sale_price":float(item.sale_price) if item.sale_price is not None else None,
+                        "cost_price":float(item.cost_price)if item.cost_price is not None else None,
                         "discount_type": (
                             "PERCENTAGE"
                             if item.discount_type == "Discount Percentage"
@@ -2109,6 +2120,7 @@ def get_promotion_list(pos_profile):
                         "max_qty": item.max_qty,
                         "discount_percentage": item.discount_percentage,
                         "discount_price": item.discount__amount,
+                        "price_after_discount":float(item.price_after_discount) if item.price_after_discount is not None else None,
                         "uom_id": matched_uom_row.name if matched_uom_row else None,
                         "uom": item.uom,
                     }
