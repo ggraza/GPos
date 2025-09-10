@@ -1042,7 +1042,6 @@ def generate_token_secure_for_users(username, password, app_key):
 
 @frappe.whitelist(allow_guest=True)
 def getOfflinePOSUsers(id=None, offset=0, limit=500):
-
     docs = frappe.db.get_all(
         "POS Offline Users",
         fields=[
@@ -1336,6 +1335,7 @@ def create_invoice(
                 "uom": item.get("uom", "Nos"),
                 "cost_center": item.get("cost_center", profile_cost_center),
                 "discount_account": item.get("discount_account", profile_discount_account),
+                "allow_zero_valuation_rate":1
             }
             for item in items
         ]
@@ -1530,6 +1530,7 @@ def create_invoice(
                     "income_account": item.income_account,
                     "item_tax_template": item.item_tax_template,
                     "tax_rate": item_tax_rate,
+                    "allow_zero_valuation_rate":item.allow_zero_valuation_rate
                 }
                 for item in new_invoice.items
             ],
@@ -1813,6 +1814,7 @@ def create_credit_note(
                 "uom": item.get("uom", "Nos"),
                 "cost_center": item.get("cost_center",cost_center),
                 "discount_account": item.get("discount_account", profile_discount_account),
+                "allow_zero_valuation_rate": 1
             }
             for item in items
         ]
@@ -1923,6 +1925,7 @@ def create_credit_note(
                     "item_tax_template": item.item_tax_template
                     if item.item_tax_template
                     else None,
+                    "allow_zero_valuation_rate": item.allow_zero_valuation_rate,
                     "tax_rate": frappe.get_value(
                         "Item Tax Template Detail",
                         {"parent": item.item_tax_template},
@@ -2282,7 +2285,6 @@ def create_customer_new(
 
 
 
-
 @frappe.whitelist()
 def customer_list(id=None, pos_profile=None):
     try:
@@ -2304,13 +2306,14 @@ def customer_list(id=None, pos_profile=None):
             filters=filters,
         )
 
-        if  not customers:
+        if not customers:
             return Response(
                 json.dumps({"error": "Customer not found"}),
                 status=404,
                 mimetype="application/json",
             )
 
+        # ✅ If no pos_profile, return all customers
         if not pos_profile:
             return Response(
                 json.dumps({"data": customers}),
@@ -2318,7 +2321,7 @@ def customer_list(id=None, pos_profile=None):
                 mimetype="application/json",
             )
 
-
+        # ✅ Validate POS Profile exists
         if not frappe.db.exists("POS Profile", pos_profile):
             return Response(
                 json.dumps({"error": "POS Profile not found"}),
@@ -2326,40 +2329,39 @@ def customer_list(id=None, pos_profile=None):
                 mimetype="application/json",
             )
 
-
         default_customer = frappe.db.get_value("POS Profile", pos_profile, "customer")
 
-
         filtered_customers = []
+        for cust in customers:
+            cust["custom_default_pos"] = 0
 
-        try:
-            for cust in customers:
-                if default_customer and cust["id"] == default_customer:
-                    cust["custom_default_pos"] = 1
-                    filtered_customers.append(cust)
-                    continue
-                else:
-                    cust["custom_default_pos"] = 0
+            # ✅ Mark and include default customer
+            if default_customer and cust["id"] == default_customer:
+                cust["custom_default_pos"] = 1
+                filtered_customers.append(cust)
+                continue
 
-                pos_profiles = frappe.get_all(
-                    "pos profile child table",
-                    filters={"parent": cust["id"]},
-                    fields=["pos_profile"],
-                )
+            # ✅ Get POS Profiles linked to this customer
+            pos_profiles = frappe.get_all(
+                "pos profile child table",
+                filters={"parent": cust["id"], "pos_profile": pos_profile},
+                fields=["pos_profile"],
+            )
 
-                if not pos_profiles:
-                    filtered_customers.append(cust)
-                else:
-                    if any(p["pos_profile"] == pos_profile for p in pos_profiles):
-                        filtered_customers.append(cust)
-        except Exception as e:
-            return f"Error occurred: {str(e)}"
+            if pos_profiles:
+                filtered_customers.append(cust)
 
+        if not filtered_customers:
+            return Response(
+                json.dumps({"error": "No customers found for given POS Profile"}),
+                status=404,
+                mimetype="application/json",
+            )
 
+        # ✅ Prepare final data with address
         data = []
-        for customer in customers:
+        for customer in filtered_customers:
             address_data = {}
-            address_created = False
             if customer.customer_primary_address:
                 address = frappe.get_doc("Address", customer.customer_primary_address)
                 address_data = {
@@ -2368,7 +2370,6 @@ def customer_list(id=None, pos_profile=None):
                     "building_no": int(address.custom_building_number) if address.custom_building_number else None,
                     "pb_no": int(address.pincode) if address.pincode else None
                 }
-
 
             data.append({
                 "id": customer.get("id"),
@@ -2379,9 +2380,9 @@ def customer_list(id=None, pos_profile=None):
                 "custom_default_pos": customer.get("custom_default_pos"),
                 "disabled": customer.get("disabled"),
                 **address_data,
-
             })
 
         return Response(json.dumps({"data": data}), status=200, mimetype="application/json")
+
     except Exception as e:
         return Response(json.dumps({"error": str(e)}), status=500, mimetype="application/json")
