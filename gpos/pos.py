@@ -784,6 +784,8 @@ def pos_setting(machine_name, pos_profile=None):
     pos_profile_doc = frappe.get_doc("POS Profile", pos_profile) if pos_profile else None
     address = pos_profile_doc.custom_address if pos_profile_doc else None
     address_details = frappe.get_doc("Address", address) if address else None
+    card_pay=pos_profile_doc.custom_cardpay_settings if pos_profile_doc else None
+    cardpay_setting=frappe.get_doc("CardPay Settings",card_pay) if card_pay else None
 
     branch_details = {
         "branch_name": pos_profile_doc.custom_branch if pos_profile_doc else None,
@@ -822,6 +824,13 @@ def pos_setting(machine_name, pos_profile=None):
         "is_tax_included_in_price": systemSettings.is_tax_included_in_price,
         "tax_percentage": systemSettings.tax_percentage,
         "company_name_in_arabic": systemSettings.company_name_in_arabic,
+        "cardpay_settings": {
+            "name":cardpay_setting.name,
+            "secret_key":cardpay_setting.secret_key,
+            "Api_key":cardpay_setting.api_key,
+            "merchant_id":cardpay_setting.merchant_id,
+            "company":cardpay_setting.company
+        } if card_pay else None
         "taxes": [
             {
                 "charge_type": tax.charge_type,
@@ -1251,6 +1260,7 @@ def create_invoice(
     pos_shift=None,
     cashier=None,
     PIH=None,
+    transaction_id=None,
     phase=1,
 ):  # Default to phase 1
     try:
@@ -1449,6 +1459,7 @@ def create_invoice(
                 "custom_invoice_type": "Retail",
                 "taxes_and_charges": profile_taxes_and_charges,
                 "additional_discount_account": profile_discount_account,
+                "custom_transaction_id": transaction_id
             }
         )
 
@@ -1520,6 +1531,7 @@ def create_invoice(
             if hasattr(new_invoice, "custom_qr_code")
             else None,
             "pih": doc.custom_pih if PIH else None,
+            "transaction_id":new_invoice.custom_transaction_id if transaction_id else None,
             "items": [
                 {
                     "item_name": item.item_name,
@@ -2391,4 +2403,38 @@ def customer_list(id=None, pos_profile=None):
         return Response(json.dumps({"data": data}), status=200, mimetype="application/json")
 
     except Exception as e:
+        return Response(json.dumps({"error": str(e)}), status=500, mimetype="application/json")
+
+
+
+@frappe.whitelist()
+def cardpay_log(branch=None,unique_id=None, response_json=None, date_time=None, userId=None, status=None):
+    try:
+
+        doc = frappe.get_doc({
+            "doctype": "Credit Card Machine Log",
+            "branch": branch,
+            "response_json": response_json,
+            "user_id": userId,
+            "status": status,
+            "unique_id":unique_id,
+            "datetim": date_time
+        })
+
+
+        doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+        data = {
+            "id":doc.name,
+            "branch":doc.branch,
+            "response_json":doc.response_json,
+            "user_id":doc.user_id,
+            "status":doc.status,
+            "datetime":doc.datetim,
+            "unique_id":doc.unique_id
+        }
+        return Response(json.dumps({"data":data}), status=200, mimetype="application/json")
+
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "CardPay Log Error")
         return Response(json.dumps({"error": str(e)}), status=500, mimetype="application/json")
