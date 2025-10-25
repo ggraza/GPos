@@ -825,12 +825,13 @@ def pos_setting(machine_name, pos_profile=None):
         "tax_percentage": systemSettings.tax_percentage,
         "company_name_in_arabic": systemSettings.company_name_in_arabic,
         "cardpay_settings": {
-            "name":cardpay_setting.name,
+            "id":cardpay_setting.name,
             "secret_key":cardpay_setting.secret_key,
-            "Api_key":cardpay_setting.api_key,
+            "api_key":cardpay_setting.api_key,
             "merchant_id":cardpay_setting.merchant_id,
-            "company":cardpay_setting.company
-        } if card_pay else None
+            "connection_type":cardpay_setting.connection_type,
+            "company":cardpay_setting.provider
+        } if card_pay else None,
         "taxes": [
             {
                 "charge_type": tax.charge_type,
@@ -1261,8 +1262,11 @@ def create_invoice(
     cashier=None,
     PIH=None,
     transaction_id=None,
+    mobile_no=None,
+    coupen_customer_name=None,
     phase=1,
-):  # Default to phase 1
+
+):
     try:
         pos_settings = frappe.get_doc("Claudion POS setting")
 
@@ -1293,6 +1297,14 @@ def create_invoice(
                 status=404,
                 mimetype="application/json",
             )
+        if mobile_no:
+            customer_id = customer_details[0].name
+            existing_mobile = frappe.db.get_value("Customer", customer_id, "mobile_no")
+
+        if not existing_mobile or existing_mobile != mobile_no:
+            frappe.db.set_value("Customer", customer_id, "mobile_no", mobile_no)
+            frappe.db.commit()
+
 
         pos_profile_doc = (
             frappe.get_doc("POS Profile", pos_profile) if pos_profile else None
@@ -1459,7 +1471,9 @@ def create_invoice(
                 "custom_invoice_type": "Retail",
                 "taxes_and_charges": profile_taxes_and_charges,
                 "additional_discount_account": profile_discount_account,
-                "custom_transaction_id": transaction_id
+                "custom_transaction_id": transaction_id,
+                "custom_coupon_customer_name":coupen_customer_name,
+                "contact_mobile":mobile_no
             }
         )
 
@@ -1532,6 +1546,8 @@ def create_invoice(
             else None,
             "pih": doc.custom_pih if PIH else None,
             "transaction_id":new_invoice.custom_transaction_id if transaction_id else None,
+            "mobile_no":new_invoice.contact_mobile,
+            "coupon_customer_name":new_invoice.custom_coupon_customer_name,
             "items": [
                 {
                     "item_name": item.item_name,
@@ -1765,6 +1781,7 @@ def create_credit_note(
                 status=404,
                 mimetype="application/json",
             )
+
 
         # if not return_against:
         #     return Response(
@@ -2438,3 +2455,55 @@ def cardpay_log(branch=None,unique_id=None, response_json=None, date_time=None, 
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "CardPay Log Error")
         return Response(json.dumps({"error": str(e)}), status=500, mimetype="application/json")
+
+
+
+
+
+from frappe import _
+@frappe.whitelist()
+def get_loyalty_points(customer_number):
+    """
+    Fetch total loyalty points for a customer using their phone/customer number
+    """
+    try:
+        if not customer_number:
+            frappe.throw(_("Customer number is required"))
+
+
+        customer = frappe.db.get_value("Customer", {"mobile_no": customer_number}, "name")
+
+        if not customer:
+            error_data = {
+                "status": "error",
+                "message": f"Customer with number '{customer_number}' does not exist"
+            }
+            return Response(json.dumps({"data": error_data}), status=404, mimetype="application/json")
+
+
+        points = frappe.db.sql(
+            """
+            SELECT SUM(loyalty_points)
+            FROM `tabLoyalty Point Entry`
+            WHERE customer = %s
+            """,
+            (customer,),
+        )
+
+        total_points = points[0][0] if points and points[0][0] else 0
+
+        data = {
+            "customer": customer,
+            "customer_number": customer_number,
+            "loyalty_points": total_points
+        }
+
+        return Response(json.dumps({"data": data}), status=200, mimetype="application/json")
+
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "get_loyalty_points Error")
+        error_data = {
+            "status": "error",
+            "message": f"An unexpected error occurred: {str(e)}"
+        }
+        return Response(json.dumps({"data": error_data}), status=500, mimetype="application/json")
