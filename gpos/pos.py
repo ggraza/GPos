@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 from frappe.utils import today
 from frappe import _
 from frappe import ValidationError
+from frappe.utils import add_days, getdate
 
 from datetime import datetime
 BACKEND_SERVER_SETTINGS = "Backend Server Settings"
@@ -767,14 +768,25 @@ def pos_setting(machine_name, pos_profile=None):
         limit=1,
     )
 
-    if machine_name:
-        certificate = Zatca_Multiple_Setting.custom_certficate
-        private_key = Zatca_Multiple_Setting.custom_private_key
-        public_key = Zatca_Multiple_Setting.custom_public_key
-    else:
+    use_company_values = (
+        Zatca_Multiple_Setting.custom_take_values_from_main_company_page
+        if Zatca_Multiple_Setting else False
+    )
+
+    if use_company_values:
+
         certificate = zatca.custom_certificate
         private_key = zatca.custom_private_key
         public_key = zatca.custom_public_key
+        pih=zatca.custom_pih
+
+    else:
+
+        pih=Zatca_Multiple_Setting.custom_pih
+        certificate = Zatca_Multiple_Setting.custom_certficate
+        private_key = Zatca_Multiple_Setting.custom_private_key
+        public_key = Zatca_Multiple_Setting.custom_public_key
+
 
     encoded_certificate = base64.b64encode(certificate.encode("utf-8")).decode("utf-8")
     encoded_private_key = base64.b64encode(private_key.encode("utf-8")).decode("utf-8")
@@ -854,11 +866,7 @@ def pos_setting(machine_name, pos_profile=None):
             "company_taxid": zatca.tax_id,
             "certificate": encoded_certificate,
             "pih": (
-                (
-                    Zatca_Multiple_Setting.custom_pih
-                    if Zatca_Multiple_Setting
-                    else zatca.custom_pih
-                )
+                pih
                 if zatca.custom_phase_1_or_2 == "Phase-2"
                 else None
             ),
@@ -2567,6 +2575,7 @@ def get_loyalty_points(customer_number):
             WHERE
                 mobile_no = %s
                 AND used_loyalty_point = '0'
+                AND is_expired = 0
         """, (customer_number,), as_dict=True)
 
         total_loyalty_points = (
@@ -2638,6 +2647,16 @@ def handle_loyalty_points(invoice_name, customer_name, mobile_no):
 
 
         if total_loyalty_points > 0 or redeemed_points > 0:
+            # If no mobile number, DO NOT add loyalty entry
+            if not mobile_no:
+                return {
+                    "status": "success",
+                    "earned_points": 0,
+                    "redeemed_points": 0,
+                    "message": "Loyalty points NOT added because no mobile number was provided."
+                }
+
+
             loyalty_doc = frappe.get_doc({
                 "doctype": "Loyalty Point Entry Gpos",
                 "invoice_id": invoice_doc.name,
@@ -2651,6 +2670,8 @@ def handle_loyalty_points(invoice_name, customer_name, mobile_no):
                 "redeem_against": invoice_doc.name if redeemed_points > 0 else None,
             })
             loyalty_doc.insert(ignore_permissions=True)
+
+
 
 
             if redeemed_points > 0 and mobile_no:
@@ -2809,3 +2830,26 @@ def get_receiver_phone_number(number):
             phoneNumber = phoneNumber[1:]
 
         return phoneNumber
+
+
+
+
+@frappe.whitelist(allow_guest=True)
+def expire_loyalty_points():
+    today = frappe.utils.today()
+
+    entries = frappe.get_all(
+        "Loyalty Point Entry Gpos",
+        filters={
+            "expiry_date": ("<=", today),
+            "is_expired": 0,
+        },
+        fields=["name"]
+    )
+
+    for e in entries:
+        doc = frappe.get_doc("Loyalty Point Entry Gpos", e.name)
+        doc.is_expired = 1
+        doc.save(ignore_permissions=True)
+        frappe.db.commit()
+
