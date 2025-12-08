@@ -227,6 +227,12 @@ fixtures = [
         "dt": "Client Script",
         "filters": {"module": "Gpos"},
     },
+    {
+        "dt": "Property Setter",
+        "filters": [
+            ["module", "=", "gpos"]
+        ]
+    }
 ]
 
 scheduler_events = {
