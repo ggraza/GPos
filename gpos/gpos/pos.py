@@ -1322,7 +1322,7 @@ def create_invoice(
                 mode = payment.get("mode_of_payment", "").strip()
                 amount = float(payment.get("amount", 0))
 
-                if mode.lower() in ["cash", "card"] and pos_profile:
+                if mode.lower() in ["cash", "card","loyalty"] and pos_profile:
                     for row in pos_profile_doc.get("payments") or []:
                         if (
                             row.custom_offline_mode_of_payment1
