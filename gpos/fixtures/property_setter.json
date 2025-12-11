@@ -1,0 +1,18 @@
+[
+ {
+  "default_value": null,
+  "doc_type": "POS Payment Method",
+  "docstatus": 0,
+  "doctype": "Property Setter",
+  "doctype_or_field": "DocField",
+  "field_name": "custom_offline_mode_of_payment1",
+  "is_system_generated": 0,
+  "modified": "2025-12-08 12:11:29.678623",
+  "module": "Gpos",
+  "name": "POS Payment Method-custom_offline_mode_of_payment1-options",
+  "property": "options",
+  "property_type": "Select",
+  "row_name": null,
+  "value": "Cash\nCard\nLoyalty"
+ }
+]

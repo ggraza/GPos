@@ -1,0 +1,24 @@
+{
+    "invoice_number": "Not Found",
+    "invoice_date": "Not Found",
+    "supplier": {
+        "name": "customer1k234 Cust.Vat : None Claudion",
+        "address": "Not Found",
+        "city": "Not Found",
+        "country": "Not Found",
+        "email": "billing@claudion.com",
+        "phone": "+971-50505050"
+    },
+    "customer": {
+        "name": "mer1k234",
+        "address": "Not Found",
+        "city": "Not Found",
+        "country": "Not Found",
+        "VAT": "None Claudion"
+    },
+    "taxes": {},
+    "sub_total": "Not Found",
+    "vat_total": "Not Found",
+    "invoice_total": "Not Found",
+    "line_items": []
+}
